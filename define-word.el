@@ -5,6 +5,7 @@
 ;; Author: Oleh Krehel <ohwoeowho@gmail.com>
 ;; URL: https://github.com/abo-abo/define-word
 ;; Version: 0.1.0
+;; Modified: 2017-10-31
 ;; Package-Requires: ((emacs "24.1") (request-deferred "0.2.0"))
 ;; Keywords: dictionary, convenience
 
@@ -36,6 +37,7 @@
 ;;(require 'url-parse)
 ;;(require 'url-http)
 (require 'request-deferred)
+(require 'dom)
 
 (defgroup define-word nil
   "Define word at point using an online dictionary."
@@ -52,11 +54,12 @@ The rule is that all definitions must contain \"Plural of\".")
 
 (defcustom define-word-services
   '((wordnik "http://wordnik.com/words/%s" define-word--parse-wordnik message)
-    (tyda "http://tyda.se/?w=%s" define-word--parse-tyda message))
+    (tyda "http://tyda.se/?w=%s" define-word--parse-tyda message)
+    (thesaurus "http://www.thesaurus.com/browse/%s" define-word--parse-thesaurus message))
   "Services for define-word, A list of lists of the
   format (symbol url function-for-parsing function-for-displaying)"
   :type '(alist :key-type (symbol :tag "Name of service")
-                :value-type (group 
+                :value-type (group
                              (string :tag "Url (%s denotes search word)")
                              (function :tag "Parsing function")
                              (function :tag "Displaying function"))))
@@ -138,6 +141,54 @@ Prefix arg lets you choose service"
           (push (mapconcat 'identity (nreverse inner) " | ") results)))
       (list (decode-coding-string (mapconcat 'identity (nreverse results) "\n") 'utf-8-unix t)))))
 
+(defun define-word--parse-thesaurus ()
+  "Parse output from thesaurus.com and return formatted list"
+  (decode-coding-region (point-min) (point-max) 'utf-8-unix)
+  ;; TODO, understand this coding business with request ^^
+  (let* ((rellist
+          (dom-by-class
+           (libxml-parse-html-region (point-min) (point-max) nil t)
+           "relevancy-list")))
+    (list
+     (if rellist
+         (define-word--strings-in-colums
+           (cl-loop with dc
+                    for link in (dom-by-tag rellist 'a)
+                    do (setq dc (assoc-default 'data-category (dom-attributes link)))
+                    collect
+                    (propertize
+                     (dom-text (dom-by-class link "text"))
+                     'face
+                     (cond
+                      ((string-match-p "relevant-3" dc) 'bold)
+                      ((string-match-p "relevant-2" dc) 'default)
+                      ((string-match-p "relevant-1" dc) 'italic)
+                      (t 'default)))))
+       "No matches"))))
+
+(defun define-word--strings-in-colums (strings)
+  "Return list of strings in columns
+Responds to the window width as ls should but may not!"
+  ;; adapted from `ls-lisp-column-format' from:
+  ;; https://www.emacswiki.org/emacs/ls-lisp-20.el
+  (with-temp-buffer
+    (let* ((colwid (+ 2 (cl-loop for x in strings
+                                 maximize (length x))))
+           (nstrings (length strings))
+           (fmt (format "%%-%ds" colwid))	; print format
+           (ncols (/ (window-width) colwid)) ; no of columns
+           (collen (/ nstrings ncols)))
+      (if (> nstrings (* collen ncols)) (setq collen (1+ collen)))
+      (let ((i 0) j)
+        (while (< i collen)
+          (setq j i)
+          (while (< j nstrings)
+            (insert (format fmt (nth j strings)))
+            (setq j (+ j collen)))
+          (insert ?\n)
+          (setq i (1+ i)))))
+    (whitespace-cleanup)
+    (buffer-string)))
 
 (provide 'define-word)
 
