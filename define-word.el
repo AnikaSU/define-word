@@ -66,14 +66,14 @@ The rule is that all definitions must contain \"Plural of\".")
   `define-word-services'")
 
 ;;;###autoload
-(defun define-word (word service choose-service)
+(defun define-word (word service &optional choose-service)
   "Define WORD using various services"
   (interactive "MWord: \ni\nP")
   (let* ((service (or service
                       (if choose-service
                           (intern
                            (completing-read "Service: " (mapcar #'car define-word-services)))
-                        'define-word-default-service)))
+                        define-word-default-service)))
          (servicedata (assoc service define-word-services))
          (link (format (nth 1 servicedata) (downcase word))))
     (deferred:$
